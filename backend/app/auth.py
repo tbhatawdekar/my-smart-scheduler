@@ -89,7 +89,9 @@ async def auth_callback(code: str, state: str = None):
             'scopes': credentials.scopes
         }
         
-        return {"message": "Authentication successful! You can now use the calendar API endpoints."}
+        # Redirect back to frontend after successful authentication
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="http://localhost:3000")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
