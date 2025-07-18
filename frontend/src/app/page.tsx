@@ -11,6 +11,9 @@ export default function HomePage() {
   const [today, setToday] = useState<string>('');
   const [addingBreak, setAddingBreak] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [mood, setMood] = useState('');
+  const [llmMessage, setLlmMessage] = useState<string | null>(null);
+  const [llmLoading, setLlmLoading] = useState(false);
 
   useEffect(() => {
     checkAuthAndLoadEvents();
@@ -66,6 +69,23 @@ export default function HomePage() {
   const handleLogout = () => {
     // For now, just redirect to login
     window.location.href = '/login';
+  };
+
+  const handleLLMSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mood.trim()) return;
+    try {
+      setLlmLoading(true);
+      setLlmMessage(null);
+      const result = await apiService.scheduleWithLLM(mood);
+      setLlmMessage(result.message + ` (Scheduled: ${result.activity} at ${formatTime(result.start)})`);
+      setMood('');
+      await loadTodayEvents();
+    } catch (err) {
+      setLlmMessage('Failed to schedule with LLM.');
+    } finally {
+      setLlmLoading(false);
+    }
   };
 
   if (loading) {
@@ -207,6 +227,32 @@ export default function HomePage() {
             Refresh Schedule
           </button>
         </div>
+
+        {/* LLM Mood Scheduler */}
+        <form onSubmit={handleLLMSchedule} className="mt-10 max-w-xl mx-auto flex flex-col items-center gap-4">
+          <label htmlFor="mood" className="block text-sm font-medium text-gray-700">
+            How are you feeling today?
+          </label>
+          <div className="flex w-full gap-2">
+            <input
+              id="mood"
+              type="text"
+              value={mood}
+              onChange={e => setMood(e.target.value)}
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+              placeholder="e.g. tired, bored, energetic..."
+              disabled={llmLoading}
+            />
+            <button
+              type="submit"
+              disabled={llmLoading || !mood.trim()}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md font-medium hover:bg-indigo-700 disabled:bg-indigo-300"
+            >
+              {llmLoading ? 'Scheduling...' : 'Suggest Activity'}
+            </button>
+          </div>
+          {llmMessage && <div className="text-green-700 text-sm mt-2">{llmMessage}</div>}
+        </form>
       </main>
     </div>
   );

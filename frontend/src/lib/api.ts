@@ -31,6 +31,14 @@ export interface InsertEventResponse {
   end: string;
 }
 
+export interface LLMResponse {
+  message: string;
+  activity: string;
+  start: string;
+  end: string;
+  event_id: string;
+}
+
 export const apiService = {
   // Authentication
   login: () => {
@@ -45,6 +53,11 @@ export const apiService = {
 
   insertBreakEvent: async (): Promise<InsertEventResponse> => {
     const response = await api.post('/api/insert');
+    return response.data;
+  },
+
+  scheduleWithLLM: async (mood: string): Promise<LLMResponse> => {
+    const response = await api.post('/api/schedule-llm', { mood });
     return response.data;
   },
 

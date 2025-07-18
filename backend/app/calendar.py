@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import pytz
+import openai
+import os
+import json as pyjson
+import re
 
 from .auth import get_credentials
 
@@ -102,3 +106,64 @@ async def insert_break_event(credentials: Credentials = Depends(get_credentials)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to insert event: {str(e)}") 
+
+@router.post("/schedule-llm")
+async def schedule_with_llm(
+    mood: str = Body(..., embed=True),
+    credentials: Credentials = Depends(get_credentials)
+):
+    """Schedule a wellbeing activity based on user's mood using LLM"""
+    try:
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+        if not openai.api_key:
+            raise HTTPException(status_code=500, detail="OpenAI API key not set.")
+
+        # Prompt for the LLM
+        prompt = f"""
+        You are a wellbeing assistant. The user is feeling: '{mood}'.
+        Choose one of these activities: read, play a video game, go out for a walk.
+        Suggest the best time for a 30-minute session today, based on the mood and typical daily routine (morning, afternoon, or evening).
+        Respond in JSON with fields: activity, hour (24h, e.g. 10, 15, 19), and a short encouraging message.
+        """
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100,
+        )
+        # Extract JSON from LLM response
+        llm_text = response.choices[0].message.content
+        match = re.search(r'\{.*\}', llm_text, re.DOTALL)
+        if not match:
+            raise HTTPException(status_code=500, detail="LLM did not return valid JSON.")
+        llm_json = pyjson.loads(match.group(0))
+        activity = llm_json.get("activity", "read")
+        hour = int(llm_json.get("hour", 18))
+        message = llm_json.get("message", "Enjoy your activity!")
+
+        # Schedule the event in Google Calendar
+        now = datetime.utcnow()
+        start_time = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        end_time = start_time + timedelta(minutes=30)
+        event = {
+            'summary': activity.capitalize(),
+            'description': f"Scheduled by Smart Scheduler LLM. Mood: {mood}. {message}",
+            'start': {
+                'dateTime': start_time.isoformat() + 'Z',
+                'timeZone': 'UTC',
+            },
+            'end': {
+                'dateTime': end_time.isoformat() + 'Z',
+                'timeZone': 'UTC',
+            },
+        }
+        service = build('calendar', 'v3', credentials=credentials)
+        event = service.events().insert(calendarId='primary', body=event).execute()
+        return {
+            "message": message,
+            "activity": activity,
+            "start": event['start']['dateTime'],
+            "end": event['end']['dateTime'],
+            "event_id": event['id']
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to schedule with LLM: {str(e)}") 
